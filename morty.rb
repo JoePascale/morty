@@ -28,6 +28,25 @@ module Morty
         route("DELETE", path, &handler)
       end
 
+      def call(env)
+        @request = Rack::Request.new(env)
+        verb = @request.request_method
+        requested_path = @request.path_info
+
+        handler = @routes.fetch(verb, {}).fetch(requested_path, nil)
+
+        if handler
+          result = instance_eval(&handler)
+          if result.class == String
+            [200, {}, [result]]
+          else
+            result
+          end
+        else
+          [404, {}, ["Oops! No route for #{verb} #{requested_path}"]]
+        end
+      end
+
       attr_reader :request
 
       private
@@ -41,35 +60,46 @@ module Morty
         @request.params
       end
   end
-end
 
-def call(env)
-  @request = Rack::Request.new(env)
-  verb = @request.request_method
-  requested_path = @request.path_info
+  Application = Base.new
 
-  handler = @routes.fetch(verb, {}).fetch(requested_path, nil)
+  module Delegator
+    def self.delegate(*methods, to:)
+      Array(methods).each do |method_name|
+        define_method(method_name) do |*args, &block|
+          to.send(method_name, *args, &block)
+        end
 
-  if handler
-    instance_eval(&handler)
-  else
-    [404, {}, ["Oops! No route for #{verb} #{requested_path}"]]
+        private method_name
+      end
+    end
+
+    delegate :get, :patch, :put, :post, :delete, :head, to: Application
   end
 end
 
-morty = Morty::Base.new
+include Morty::Delegator
 
-morty.get "/fuckrick" do
-  [200, {}, ["Morty says fuck you Rick"]]
+require "./morty"
+
+get "/" do
+  "Wubba Lubba Dub Dub!!!"
 end
 
-morty.get "/" do
-  [200, {}, ["Your params are #{params.inspect}"]]
+get "/fuckrick" do
+  "Morty says fuck you Rick"
 end
 
-morty.post "/" do
+get "/hello" do
+  "Morty says 'I guess I'll hang with you Rick'"
+end
+
+get "/picklerick" do
+  "Morty hates Pickle Rick!!!"""
+end
+
+post "/" do
   [200, {}, request.body]
 end
 
-#here is a new line!
-Rack::Handler::WEBrick.run morty, Port: 9292
+Rack::Handler::WEBrick.run Morty::Application, Port: 9292
